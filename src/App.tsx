@@ -1,8 +1,16 @@
 /**
  * easy-web-worker example
  */
-import EasyWebWorker, { IEasyWebWorkerMessage } from "easy-web-worker";
-import { useEffect, useRef, useState } from "react";
+import { createEasyWebWorker, EasyWebWorker } from "easy-web-worker";
+
+import {
+  EffectCallback,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
 import prismjs from "prismjs";
 
 import "prismjs/themes/prism.min.css";
@@ -10,18 +18,16 @@ import "prismjs/themes/prism.min.css";
 export const App = () => {
   const workerRef = useRef<EasyWebWorker>(null);
 
-  const progressRef = useRef(null);
-
-  const [isRunning, setIsRunning] = useState(false);
-
-  useEffect(() => {
-    workerRef.current = new EasyWebWorker((easyWorker) => {
+  useMountEffect(() => {
+    workerRef.current = createEasyWebWorker((easyWorker) => {
       let currentProgress = 0;
       let shouldPrintLogs = false;
 
       let resolveFirstMessage: () => void;
 
-      const start = (message: IEasyWebWorkerMessage<string>) => {
+      easyWorker.onMessage<string>("start", (message) => {
+        console.log(message.payload);
+
         const interval = setInterval(() => {
           currentProgress += 0.5;
 
@@ -40,12 +46,6 @@ export const App = () => {
           clearInterval(interval);
           message.resolve();
         };
-      };
-
-      easyWorker.onMessage<string>("start", (message) => {
-        console.log(message.payload);
-
-        start(message);
       });
 
       easyWorker.onMessage("stop", (message) => {
@@ -64,11 +64,12 @@ export const App = () => {
     return () => {
       workerRef.current?.dispose();
     };
-  }, []);
+  });
 
-  setTimeout(() => {
-    prismjs.highlightAll();
-  }, 0);
+  queueMicrotask(() => prismjs.highlightAll());
+
+  const progressRef = useRef(null);
+  const [isRunning, setIsRunning] = useState(false);
 
   return (
     <div className="flex flex-col items-center justify-center p-10">
@@ -205,3 +206,11 @@ easyWorker.onMessage<string>('start', (message) => {
     </div>
   );
 };
+
+function useMountEffect(callback: EffectCallback) {
+  const handler = useEffectEvent(callback);
+
+  useLayoutEffect(() => {
+    return handler();
+  }, []);
+}
