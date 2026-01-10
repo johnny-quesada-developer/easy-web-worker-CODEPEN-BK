@@ -1,9 +1,7 @@
-import React, { useMemo, useRef, useSyncExternalStore } from "react";
+/* eslint-disable react-hooks/rules-of-hooks */
+import React, { useEffect, useEffectEvent, useMemo } from "react";
 import isNil from "lodash/isNil";
 import isFunction from "json-storage-formatter/isFunction";
-import shallowCompare from "react-global-state-hooks/shallowCompare";
-
-const unique_symbol = Symbol("internal stable ref");
 
 type RefCreator<T> = () => T;
 
@@ -46,71 +44,57 @@ function useStableRef<T>(
   param3?: React.DependencyList,
 ): React.RefObject<T> {
   const dependencies = isFunction(param2) ? param3 : param2;
-  const value = dependencies ? undefined : (param1 as T);
-  const builder = dependencies ? (param1 as RefCreator<T>) : undefined;
-  const cleanup = isFunction(param2) ? param2 : undefined;
+  const isSimpleRef = isNil(dependencies);
 
-  const props = useRef(
-    {} as {
-      value?: T;
-      builder?: RefCreator<T>;
-      cleanup?: CleanupFunction<T>;
-      previousDependencies?: React.DependencyList;
-    },
-  );
+  const ref = useMemo(() => {
+    let current = undefined as T | undefined;
 
-  // update hook state
-  Object.assign(props.current, {
-    value,
-    builder,
-    cleanup,
-  });
-
-  // creates stable references for subscribe and getSnapshot functions
-  const { subscribe, getSnapshot } = useMemo(() => {
-    const stableRef: React.RefObject<T | typeof unique_symbol> = {
-      current: unique_symbol,
+    const wrapper = {
+      current,
+      isInitialized: false,
     };
 
-    const subscribe = () => {
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      return () => {};
+    Object.defineProperties(wrapper, {
+      current: {
+        get: () => {
+          if (!wrapper.isInitialized) {
+            throw new Error("Stable ref is not available during render phase.");
+          }
+
+          return current;
+        },
+        set: (value: T) => {
+          current = value;
+        },
+      },
+    });
+
+    return wrapper;
+  }, []);
+
+  if (isSimpleRef) {
+    ref.current = param1 as T;
+    ref.isInitialized = true;
+
+    return ref;
+  }
+
+  const computeState = useEffectEvent(param1 as RefCreator<T>);
+
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  const cleanup = useEffectEvent(isFunction(param2) ? param2 : () => {});
+
+  useEffect(() => {
+    const current = computeState();
+
+    ref.current = current;
+    ref.isInitialized = true;
+
+    return () => {
+      cleanup?.(current);
     };
-
-    const getSnapshot = () => {
-      const { previousDependencies, builder, value, cleanup } = props.current;
-
-      if (isNil(dependencies)) {
-        stableRef.current = value;
-        return stableRef;
-      }
-
-      const isFirstRender = stableRef.current === unique_symbol;
-
-      const shouldBuild =
-        isFunction(builder) &&
-        (isFirstRender || !shallowCompare(previousDependencies, dependencies));
-
-      if (!isFirstRender && shouldBuild) cleanup?.(stableRef.current as T);
-
-      // eslint-disable-next-line react-hooks/immutability
-      stableRef.current = shouldBuild ? builder() : stableRef.current;
-
-      return stableRef;
-    };
-
-    return {
-      subscribe,
-      getSnapshot,
-    };
-    // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
-  }, dependencies);
-
-  // allows to add cleanup logic without using useEffect
-  const ref = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-
-  // refs to hold latest props
-  props.current.previousDependencies = dependencies;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, ...dependencies]);
 
   return ref as React.RefObject<T>;
 }
