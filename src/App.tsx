@@ -14,57 +14,61 @@ import {
 import prismjs from "prismjs";
 
 import "prismjs/themes/prism.min.css";
+import useStableRef from "./useStableRef";
 
 export const App = () => {
-  const workerRef = useRef<EasyWebWorker>(null);
+  // const workerRef = useRef<EasyWebWorker>(null);
 
-  useMountEffect(() => {
-    workerRef.current = createEasyWebWorker((easyWorker) => {
-      let currentProgress = 0;
-      let shouldPrintLogs = false;
+  // useMountEffect
+  const workerRef = useStableRef(
+    () => {
+      return createEasyWebWorker((easyWorker) => {
+        let currentProgress = 0;
+        let shouldPrintLogs = false;
 
-      let resolveFirstMessage: () => void;
+        let resolveFirstMessage: () => void;
 
-      easyWorker.onMessage<string>("start", (message) => {
-        console.log(message.payload);
+        easyWorker.onMessage<string>("start", (message) => {
+          console.log(message.payload);
 
-        const interval = setInterval(() => {
-          currentProgress += 0.5;
+          const interval = setInterval(() => {
+            currentProgress += 0.5;
 
-          if (shouldPrintLogs) {
-            console.log("currentProgress", currentProgress);
-          }
+            if (shouldPrintLogs) {
+              console.log("currentProgress", currentProgress);
+            }
 
-          message.reportProgress(currentProgress);
+            message.reportProgress(currentProgress);
 
-          if (currentProgress === 100) {
-            currentProgress = 0;
-          }
-        }, 1);
+            if (currentProgress === 100) {
+              currentProgress = 0;
+            }
+          }, 1);
 
-        resolveFirstMessage = () => {
-          clearInterval(interval);
+          resolveFirstMessage = () => {
+            clearInterval(interval);
+            message.resolve();
+          };
+        });
+
+        easyWorker.onMessage("stop", (message) => {
+          resolveFirstMessage?.();
+
           message.resolve();
-        };
+        });
+
+        easyWorker.onMessage("toggleLogs", (message) => {
+          shouldPrintLogs = !shouldPrintLogs;
+
+          message.resolve();
+        });
       });
-
-      easyWorker.onMessage("stop", (message) => {
-        resolveFirstMessage?.();
-
-        message.resolve();
-      });
-
-      easyWorker.onMessage("toggleLogs", (message) => {
-        shouldPrintLogs = !shouldPrintLogs;
-
-        message.resolve();
-      });
-    });
-
-    return () => {
-      workerRef.current?.dispose();
-    };
-  });
+    },
+    (worker) => {
+      worker?.dispose();
+    },
+    [],
+  );
 
   queueMicrotask(() => prismjs.highlightAll());
 
