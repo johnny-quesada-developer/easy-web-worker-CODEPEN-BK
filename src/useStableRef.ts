@@ -45,66 +45,72 @@ function useStableRef<T>(
   param2?: CleanupFunction<T> | React.DependencyList,
   param3?: React.DependencyList,
 ): React.RefObject<T> {
-  const deps = isFunction(param2) ? param3 : param2;
+  const dependencies = isFunction(param2) ? param3 : param2;
+  const value = dependencies ? undefined : (param1 as T);
+  const builder = dependencies ? (param1 as RefCreator<T>) : undefined;
   const cleanup = isFunction(param2) ? param2 : undefined;
 
-  const dependenciesRef = useRef(deps);
-  const getSnapshotRef = useRef(getSnapshot);
-  const cleanupRef = useRef(cleanup);
+  const props = useRef(
+    {} as {
+      value?: T;
+      builder?: RefCreator<T>;
+      cleanup?: CleanupFunction<T>;
+      previousDependencies?: React.DependencyList;
+    },
+  );
 
-  getSnapshotRef.current = getSnapshot;
-  cleanupRef.current = cleanup;
-
-  function getSnapshot(
-    ref: React.RefObject<T | symbol>,
-  ): React.RefObject<T | symbol> {
-    if (isNil(deps)) {
-      ref.current = param1 as T;
-      return ref;
-    }
-
-    const isFirstRender = ref.current === unique_symbol;
-
-    const shouldBuild =
-      isFunction(param1) &&
-      (isFirstRender || !shallowCompare(dependenciesRef.current, deps));
-
-    // if not first render and we are rebuilding, call cleanup
-    if (!isFirstRender && shouldBuild) cleanup?.(ref.current as T);
-
-    ref.current = shouldBuild ? param1() : ref.current;
-
-    return ref;
-  }
+  // update hook state
+  Object.assign(props.current, {
+    value,
+    builder,
+    cleanup,
+  });
 
   // creates stable references for subscribe and getSnapshot functions
-  const { ref, subscribe, getSnapshotStable } = useMemo(() => {
-    const ref: React.RefObject<T | typeof unique_symbol> = {
+  const { subscribe, getSnapshot } = useMemo(() => {
+    const stableRef: React.RefObject<T | typeof unique_symbol> = {
       current: unique_symbol,
     };
 
     const subscribe = () => {
-      return () => {
-        if (ref.current === unique_symbol) return;
-        cleanupRef.current?.(ref.current as T);
-      };
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      return () => {};
     };
 
-    const getSnapshotStable = (): React.RefObject<T> => {
-      return getSnapshotRef.current(ref) as React.RefObject<T>;
+    const getSnapshot = () => {
+      const { previousDependencies, builder, value, cleanup } = props.current;
+
+      if (isNil(dependencies)) {
+        stableRef.current = value;
+        return stableRef;
+      }
+
+      const isFirstRender = stableRef.current === unique_symbol;
+
+      const shouldBuild =
+        isFunction(builder) &&
+        (isFirstRender || !shallowCompare(previousDependencies, dependencies));
+
+      if (!isFirstRender && shouldBuild) cleanup?.(stableRef.current as T);
+
+      // eslint-disable-next-line react-hooks/immutability
+      stableRef.current = shouldBuild ? builder() : stableRef.current;
+
+      return stableRef;
     };
 
     return {
-      ref,
       subscribe,
-      getSnapshotStable,
+      getSnapshot,
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
+  }, dependencies);
 
   // allows to add cleanup logic without using useEffect
-  useSyncExternalStore(subscribe, getSnapshotStable, getSnapshotStable);
+  const ref = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  dependenciesRef.current = deps;
+  // refs to hold latest props
+  props.current.previousDependencies = dependencies;
 
   return ref as React.RefObject<T>;
 }

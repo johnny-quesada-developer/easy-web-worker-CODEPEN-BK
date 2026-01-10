@@ -65,6 +65,7 @@ export const App = () => {
       });
     },
     (worker) => {
+      console.log("Disposing worker...");
       worker?.dispose();
     },
     [],
