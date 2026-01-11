@@ -1,7 +1,7 @@
 /**
  * easy-web-worker example
  */
-import { createEasyWebWorker, EasyWebWorker } from "easy-web-worker";
+import { createEasyWebWorker } from "easy-web-worker";
 
 import {
   EffectCallback,
@@ -17,64 +17,67 @@ import "prismjs/themes/prism.min.css";
 import useStableRef from "./useStableRef";
 
 export const App = () => {
-  // const workerRef = useRef<EasyWebWorker>(null);
-
-  // useMountEffect
   const workerRef = useStableRef(
     () => {
-      return createEasyWebWorker((easyWorker) => {
-        let currentProgress = 0;
-        let shouldPrintLogs = false;
+      return createEasyWebWorker(
+        (easyWorker) => {
+          let currentProgress = 0;
+          let shouldPrintLogs = false;
 
-        let resolveFirstMessage: () => void;
+          let resolveFirstMessage: () => void;
 
-        easyWorker.onMessage<string>("start", (message) => {
-          console.log(message.payload);
+          easyWorker.onMessage<string>("start", (message) => {
+            console.log(message.payload);
 
-          const interval = setInterval(() => {
-            currentProgress += 0.5;
+            const interval = setInterval(() => {
+              currentProgress += 0.5;
 
-            if (shouldPrintLogs) {
-              console.log("currentProgress", currentProgress);
-            }
+              if (shouldPrintLogs) {
+                console.log("currentProgress", currentProgress);
+              }
 
-            message.reportProgress(currentProgress);
+              message.reportProgress(currentProgress);
 
-            if (currentProgress === 100) {
-              currentProgress = 0;
-            }
-          }, 1);
+              if (currentProgress === 100) {
+                currentProgress = 0;
+              }
+            }, 1);
 
-          resolveFirstMessage = () => {
-            clearInterval(interval);
+            resolveFirstMessage = () => {
+              clearInterval(interval);
+              message.resolve();
+            };
+          });
+
+          easyWorker.onMessage("stop", (message) => {
+            resolveFirstMessage?.();
+
             message.resolve();
-          };
-        });
+          });
 
-        easyWorker.onMessage("stop", (message) => {
-          resolveFirstMessage?.();
+          easyWorker.onMessage("toggleLogs", (message) => {
+            shouldPrintLogs = !shouldPrintLogs;
 
-          message.resolve();
-        });
-
-        easyWorker.onMessage("toggleLogs", (message) => {
-          shouldPrintLogs = !shouldPrintLogs;
-
-          message.resolve();
-        });
-      });
+            message.resolve();
+          });
+        },
+        {
+          warmUpWorkers: false,
+        },
+      );
     },
     (worker) => {
-      console.log("Disposing worker...");
       worker?.dispose();
     },
     [],
   );
 
-  queueMicrotask(() => prismjs.highlightAll());
-
   const progressRef = useRef(null);
   const [isRunning, setIsRunning] = useState(false);
+
+  useMountEffect(() => {
+    prismjs.highlightAll();
+  });
 
   return (
     <div className="flex flex-col items-center justify-center p-10">
